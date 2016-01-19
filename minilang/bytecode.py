@@ -88,7 +88,7 @@ class ByteCodeCompiler(object):
             LabeledInstruction('JNE', label, self.labels_end)
         )
 
-        # if no jump happened, execute loop body
+        # if no jump has happened, execute loop body
         self.eval_block(node.body)
         # jump back (body end)
         self.program.append(
