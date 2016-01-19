@@ -3,14 +3,17 @@ from interpreter import Instruction
 
 from collections import namedtuple
 
-LabeledInstruction = namedtuple('LabeledInstruction', ['code', 'arg', 'lookup'])
+LabeledInstruction = namedtuple(
+    'LabeledInstruction',
+    ['code', 'arg', 'lookup']
+)
+
 
 class ByteCodeCompiler(object):
     def __init__(self):
         self.program = []
         self.labels = []
         self.labels_end = []
-
 
     def compile(self, ast):
         self.eval_block(ast)
@@ -22,10 +25,8 @@ class ByteCodeCompiler(object):
             self.eval(node)
             if bc_name not in ['ASSIGN', 'LOOP']:
                 self.pop()
-        
+
         return self.program
-
-
 
     def _resolve_labels(self):
         for index, inst in enumerate(self.program):
@@ -79,8 +80,8 @@ class ByteCodeCompiler(object):
 
     def LOOP(self, node):
         label = self.next_label()
-        
-        #eval condition
+
+        # eval condition
         self.eval(node.condition)
 
         # decide to jump or not
