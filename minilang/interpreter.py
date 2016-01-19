@@ -9,7 +9,6 @@ class Intepreter(object):
     def __init__(self):
         self.stack = []
         self.namespace = {}
-
         self.program = []
         self.pc = -1
 
@@ -22,14 +21,14 @@ class Intepreter(object):
             instruction = self.program[self.pc]
         except IndexError:
             raise StopIteration
-        
-        # print(self.pc, instruction)
-        
+
         func = getattr(self, instruction.code)
         func(instruction.arg)
 
     def _stack_pop_two(self):
         return self.stack.pop(), self.stack.pop()
+
+    # byte codes
 
     def POP(self, arg=None):
         self.stack.pop()
@@ -70,11 +69,10 @@ class Intepreter(object):
         b, a = self._stack_pop_two()
         self.stack.append(a + b)
 
-
     def CALL(self, args):
         func = self.stack.pop()
         args = [self.stack.pop() for _ in range(args)][::-1]
-        
+
         result = func(*args)
         self.stack.append(result)
 

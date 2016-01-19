@@ -62,14 +62,6 @@ precedence = (
 )
 
 
-# lexer.input(text)
-
-# while True:
-#     token = lexer.token()
-#     if token is None:
-#         break
-
-#     print token
 
 
 CONST_INT = namedtuple('CONST_INT', ['value'])

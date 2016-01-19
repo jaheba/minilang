@@ -39,9 +39,7 @@ class ByteCodeCompiler(object):
                 )
 
     def pop(self):
-        self.program.append(
-            Instruction('POP', None)
-        )
+        self.program.append(Instruction('POP', None))
 
     def next_label(self):
         index = len(self.labels)
@@ -64,19 +62,13 @@ class ByteCodeCompiler(object):
     def ASSIGN(self, node):
 
         self.eval(node.value)
-        self.program.append(
-            Instruction('STORE', node.name)
-        )
+        self.program.append(Instruction('STORE', node.name))
 
     def CONST_INT(self, node):
-        self.program.append(
-            Instruction('CONST_INT', node.value)
-        )
+        self.program.append(Instruction('CONST_INT', node.value))
 
     def LOAD_VAR(self, node):
-        self.program.append(
-            Instruction('LOAD_VAR', node.name)
-        )
+        self.program.append(Instruction('LOAD_VAR', node.name))
 
     def LOOP(self, node):
         label = self.next_label()
@@ -85,16 +77,12 @@ class ByteCodeCompiler(object):
         self.eval(node.condition)
 
         # decide to jump or not
-        self.program.append(
-            LabeledInstruction('JNE', label, self.labels_end)
-        )
+        self.program.append(LabeledInstruction('JNE', label, self.labels_end))
 
         # if no jump has happened, execute loop body
         self.eval_block(node.body)
         # jump back (body end)
-        self.program.append(
-            Instruction('JUMP', self.labels[label])
-        )
+        self.program.append(Instruction('JUMP', self.labels[label]))
 
         self.mark_label_end(label)
 
@@ -102,13 +90,9 @@ class ByteCodeCompiler(object):
         self._eval_left_right(node)
 
         if node.type == '<':
-            self.program.append(
-                Instruction('COMP', 'LE')
-            )
+            self.program.append(Instruction('COMP', 'LE'))
         elif node.type == '+':
-            self.program.append(
-                Instruction('PLUS', None)
-            )
+            self.program.append(Instruction('PLUS', None))
         else:
             raise ValueError(node.type)
 
@@ -117,9 +101,7 @@ class ByteCodeCompiler(object):
             self.eval(arg)
 
         self.eval(node.name)
-        self.program.append(
-            Instruction('CALL', len(node.args))
-        )
+        self.program.append(Instruction('CALL', len(node.args)))
 
 
 text = 'x:=0; while x < 5 { print(x); x := x+1; }'
