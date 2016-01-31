@@ -1,8 +1,9 @@
 
-from interpreter import Instruction
+# from interpreter import Instruction
 
 from collections import namedtuple
 
+Instruction = namedtuple('Instruction', ['code', 'arg'])
 LabeledInstruction = namedtuple(
     'LabeledInstruction',
     ['code', 'arg']
@@ -70,6 +71,10 @@ class ByteCodeCompiler(object):
     def CONST_INT(self, node):
         self.program.append(Instruction('CONST_INT', node.value))
 
+    def STRING(self, node):
+        #strip " "
+        self.program.append(Instruction('STRING', node.value[1:-1]))
+
     def LOAD_VAR(self, node):
         self.program.append(Instruction('LOAD_VAR', node.name))
 
@@ -93,14 +98,12 @@ class ByteCodeCompiler(object):
 
         self.mark_label_end(cond_label)
 
-        self.eval_block(node.alt)
+        if node.alt:
+            self.eval_block(node.alt)
 
         if resolve_if:
             self.mark_label_end(self.if_label)
             self.if_label = None
-
-
-
 
     def LOOP(self, node):
         label = self.next_label()
@@ -168,6 +171,31 @@ class ByteCodeCompiler(object):
         self.eval(node.expression)
         self.program.append(Instruction('PRINT', None))
 
+    def LIST(self, node):
+        for item in node.items[::-1]:
+            self.eval(item)
+        self.program.append(Instruction('CREATE_LIST', len(node.items)))
+
+    def GETITEM(self, node):
+        self.eval(node.selector)
+        self.eval(node.target)
+        self.program.append(Instruction('GETITEM', None))
+
+    def SETITEM(self, node):
+        self.eval(node.value)
+        self.eval(node.selector)
+        self.eval(node.target)
+        self.program.append(Instruction('SETITEM', None))
+    
+    def SWAPITEM(self, node):
+        self.eval(node.right)
+        self.eval(node.left)
+        self.eval(node.target)
+        self.program.append(Instruction('SWAPITEM', None))
+
+    def ATTRIBUTE(self, node):
+        self.eval(node.expression)
+        self.program.append(Instruction('ATTRIBUTE', node.name))
 
 # text = 'x:=0; while x < 5 { print(x); x := x+1; }'
 

@@ -12,18 +12,16 @@ reserved = {
 }
 
 tokens = [
-    'NAME', 'ASSIGN', 'NUMBER',
-    'COMP',
+    'NAME', 'ASSIGN', 'NUMBER', 'STRING',
+    'COMP', 'LRARROW',
+    'LPAREN', 'RPAREN', 'LCURL', 'RCURL', 'LBRACKET', 'RBRACKET',
     'PLUS','MINUS','TIMES','DIVIDE',
-    'LPAREN', 'RPAREN', 'LCURL', 'RCURL',
-    'SEMICOLON', 'COMMA', 'RETURN'
+    'SEMICOLON', 'COMMA', 'COLON', 'RETURN', 
 ]
 
 tokens.extend(reserved.values())
 
 t_ASSIGN  = r':='
-# t_NUMBER  = r'\d+'
-t_COMP    = r'==|!=|<|<=|>|>='
 
 t_PLUS    = r'\+'
 t_MINUS   = r'-'
@@ -35,13 +33,32 @@ t_LPAREN  = r'\('
 t_RPAREN  = r'\)'
 t_LCURL   = r'{'
 t_RCURL   = r'}'
+t_LBRACKET = r'\['
+t_RBRACKET = r'\]'
 t_SEMICOLON = r';'
 t_COMMA = r','
+t_COLON = r':'
 
 t_RETURN = r'\^'
 
+t_STRING = r'".+?"'
 
 t_ignore = ' \t\n'
+
+
+# we have to create functions for the following two tokens, since:
+# 1. All tokens defined by functions are added in the same order as they appear
+#    in the lexer file.
+# 2. Tokens defined by strings are added next by sorting them in order
+#    of decreasing regular expression length (longer expressions are added first).
+
+def t_LRARROW(t):
+    r'<=>'
+    return t
+
+def t_COMP(t):
+    r'==|!=|<|<=|>|>='
+    return t
 
 def t_NAME(t):
     r'[a-zA-Z_][a-zA-Z_0-9]*'
@@ -56,18 +73,20 @@ def t_NUMBER(t):
 def t_error(t):
     print("Illegal character '%s'" % t.value[0])
     t.lexer.skip(1)
+    raise ValueError(t.value)
 
 import ply.lex as lex
 lexer = lex.lex()
 
 precedence = (
-    ('left','COMP'),
+    ('nonassoc', 'COMP'),
     ('left','PLUS','MINUS'),
     ('left','TIMES','DIVIDE'),
     # ('right','UMINUS'),
 )
 
 
+STRING = namedtuple('STRING', ['value'])
 CONST_INT = namedtuple('CONST_INT', ['value'])
 BINOP = namedtuple('BINOP', ['type', 'left', 'right'])
 COMP = namedtuple('COMP', ['type', 'left', 'right'])
@@ -79,6 +98,12 @@ CALL = namedtuple('CALL', ['name', 'args'])
 FUNC = namedtuple('FUNC', ['name', 'args', 'body'])
 RET = namedtuple('RET', ['expression'])
 PRINT = namedtuple('PRINT', ['expression'])
+LIST = namedtuple('LIST', ['items'])
+GETITEM = namedtuple('GETITEM', ['target', 'selector'])
+SETITEM = namedtuple('SETITEM', ['target', 'selector', 'value'])
+SWAPITEM = namedtuple('SWAPITEM', ['target', 'left', 'right'])
+ATTRIBUTE = namedtuple('ATTRIBUTE', ['expression', 'name'])
+
 
 def p_statements(p):
     '''statements : statements statement
@@ -110,19 +135,20 @@ def p_assignment(p):
 
 def p_empty(p):
     'empty :'
-    pass
+    p[0] = None
 
 def p_expression_list(p):
     '''expression_list : expression_list COMMA expression
                   | expression
                   | empty
     '''
-
-    if len(p) == 2:
+    if p[1] is None:
+        p[0] = []
+    elif len(p) == 2:
         p[0] = [p[1]]
     else:
         p[0] = p[1]
-        p[0].append(p[2])
+        p[0].append(p[3])
 
 def p_name_list(p):
     '''name_list : NAME COMMA NAME
@@ -131,6 +157,26 @@ def p_name_list(p):
     '''
 
     return p_expression_list(p)
+
+def p_expression_getitem(p):
+    'atom_expression : atom_expression LBRACKET expression RBRACKET'
+
+    p[0] = GETITEM(p[1], p[3])
+
+def p_expression_setitem(p):
+    'atom_expression : atom_expression LBRACKET expression ASSIGN expression RBRACKET'
+
+    p[0] = SETITEM(p[1], p[3], p[5])
+
+def p_expression_swapitem(p):
+    'atom_expression : atom_expression LBRACKET expression LRARROW expression RBRACKET'
+
+    p[0] = SWAPITEM(p[1], p[3], p[5])
+
+def p_expression_list_object(p):
+    '''atom_expression : LBRACKET expression_list RBRACKET'''
+    p[0] = LIST(p[2])
+
 
 def p_func_def(p):
     '''func : FN NAME name_list block'''
@@ -151,9 +197,58 @@ def p_print(p):
     p[0] = PRINT(p[2])
 
 def p_expression_call(p):
-    '''expression : expression LPAREN expression_list RPAREN
+    '''atom_expression : atom_expression LPAREN expression_list RPAREN
     '''
     p[0] = CALL(name=p[1], args=p[3])
+
+def p_expression_string(p):
+    '''atom_expression : STRING'''
+    p[0] = STRING(p[1])
+
+def p_expression_number(p):
+    '''atom_expression : NUMBER'''
+    p[0] = CONST_INT(p[1])
+
+def p_expression_name(p):
+    'atom_expression : NAME'
+    p[0] = LOAD_VAR(p[1])
+
+def p_expression_group(p):
+    'expression : LPAREN expression RPAREN'
+    p[0] = p[2]
+
+def p_epression_attribute(p):
+    'atom_expression : expression COLON NAME'
+    p[0] = ATTRIBUTE(p[1], name=p[3])
+
+def p_while(p):
+    'while : WHILE expression block'
+    p[0] = LOOP(
+        condition=p[2],
+        body=p[3])
+
+def p_if(p):
+    '''if : IF expression block ELSE block
+          | IF expression block ELSE if
+          | IF expression block
+    '''
+    # else if
+    if len(p) == 6:
+        if type(p[5]) != list:
+            p[5] = [p[5]]
+        p[0] = COND(
+            condition=p[2],
+            body=p[3],
+            alt=p[5])
+    else:
+        p[0] = COND(
+            condition=p[2],
+            body=p[3],
+            alt=None)
+
+def p_block(p):
+    'block : LCURL statements RCURL'
+    p[0] = p[2]
 
 def p_expression_binop(p):
     '''expression : expression PLUS expression
@@ -175,46 +270,9 @@ def p_expression_comp(p):
         right=p[3],
     )
 
-def p_expression_number(p):
-    '''expression : NUMBER'''
-    p[0] = CONST_INT(p[1])
-
-def p_expression_name(p):
-    'expression : NAME'
-    p[0] = LOAD_VAR(p[1])
-
-def p_expression_group(p):
-    'expression : LPAREN expression RPAREN'
-    p[0] = p[2]
-
-def p_while(p):
-    'while : WHILE expression block'
-    p[0] = LOOP(
-        condition=p[2],
-        body=p[3])
-
-def p_if(p):
-    '''if : IF expression block ELSE block
-          | IF expression block ELSE if
-          | IF expression
-    '''
-    # else if
-    if len(p) == 6:
-        if type(p[5]) != list:
-            p[5] = [p[5]]
-        p[0] = COND(
-            condition=p[2],
-            body=p[3],
-            alt=p[5])
-    else:
-        p[0] = COND(
-            condition=p[2],
-            body=p[3],
-            alt=None)
-
-def p_block(p):
-    'block : LCURL statements RCURL'
-    p[0] = p[2]
+def p_expression_atom(p):
+    'expression : atom_expression'
+    p[0] = p[1]
 
 def p_error(t):
     print("Syntax error at '%s'" % t.value)

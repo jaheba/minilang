@@ -5,35 +5,27 @@
 
 '''
 
+import os, sys
+
+DEBUG = os.environ.get('DEBUG', None)
+def debug(text):
+    if DEBUG:
+        print >> sys.stderr, text
+
 from rpython.rlib.jit import JitDriver, purefunction, hint
 
-STORE, CONST_INT, POP, LOAD_VAR, JUMP, JNE, COMP, PLUS, SUB, MUL, DIV, CALL, MAKE_FUNC, RETURN, ARG, ARG_COUNT, PRINT = range(17)
+# meta programming
+op_codes = {}
 
-op_codes = {
-    'STORE': STORE,
-    'CONST_INT': CONST_INT,
-    'POP': POP,
-    'LOAD_VAR': LOAD_VAR,
-    'JUMP': JUMP,
-    'JNE': JNE,
-    'COMP': COMP,
-    'PLUS': PLUS,
-    'SUB': SUB,
-    'MUL': MUL,
-    'DIV': DIV,
-    'CALL': CALL,
-    'MAKE_FUNC': MAKE_FUNC,
-    'RETURN': RETURN,
-    'ARG': ARG,
-    'ARG_COUNT': ARG_COUNT,
-    'PRINT': PRINT,
-}
+for i, name in enumerate('''STORE CONST_INT STRING POP LOAD_VAR JUMP JNE COMP PLUS SUB MUL DIV CALL
+MAKE_FUNC RETURN ARG ARG_COUNT PRINT CREATE_LIST GETITEM SETITEM SWAPITEM ATTRIBUTE'''.split()):
+    globals()[name] = i
+    op_codes[name] = i
 
 op_names = op_codes.keys()
 
 class Object(object):
-    __slots__ = ()
-    __slots__ = 'i_value', 's_value', 'bool', 'namespace', 'address', 'arguments'
+    __slots__ = 'i_value', 's_value', 'bool', 'namespace', 'address', 'arguments', 'list'
     _immutable_fields_ = 'i_value', 's_value', 'bool'
 
     def to_str(self):
@@ -41,7 +33,6 @@ class Object(object):
 
 
 class Integer(Object):
-    __slots__ = 'i_value',
     _immutable_fields_ = "i_value",
 
     def __init__(self, value):
@@ -53,7 +44,6 @@ class Integer(Object):
             return w_True
         else:
             return w_False
-
 
     def eq(self, other):
         return self._bool(self.i_value == other.i_value)
@@ -73,6 +63,8 @@ class Integer(Object):
     def ge(self, other):
         return self._bool(self.i_value >= other.i_value)
 
+    # calc
+
     def add(self, other):
         return Integer(self.i_value + other.i_value)
     
@@ -89,7 +81,6 @@ class Integer(Object):
         return str(self.i_value)
 
 class String(Object):
-    __slots__ = 's_value',
     _immutable_fields_ = "s_value",
 
     def __init__(self, value):
@@ -98,8 +89,42 @@ class String(Object):
     def to_str(self):
         return self.s_value
 
+    def add(self, other):
+        return other.ladd_string(self.s_value)
+
+    def ladd_string(self, other):
+        return String(other + self.s_value)
+
+class List(Object):
+
+    def __init__(self, list):
+        self.list = list
+
+    def _check_bounds(self, index):
+        if index  >= len(self.list):
+            raise IndexError('%s not <= %s' %(index, len(self.list)))
+
+    def getitem(self, w_index):
+        index = w_index.i_value
+        self._check_bounds(index)
+        return self.list[index]
+
+    def setitem(self, w_index, w_object):
+        index = w_index.i_value
+        self._check_bounds(index)
+        self.list[index] = w_object
+
+    def to_str(self):
+        return '[%s]' %(', '.join(item.to_str() for item in self.list))
+
+    def attribute(self, name):
+        if name == 'length':
+            return Integer(len(self.list))
+        else:
+            raise AttributeError('uknown attribute %s' %name)
+
+
 class Bool(Object):
-    __slots__ = 'bool',
     _immutable_fields_ = "bool",
 
     def __init__(self, bool):
@@ -159,12 +184,16 @@ class Interpreter(object):
 
         instruction = self.program[pc]
         arg = self.program_args[pc]
-        
+
+        debug('%s with %s' %(op_names[instruction], arg.to_str()))
+
         # variables / consts
         if instruction == STORE:
             self.STORE(arg.s_value)
         elif instruction == CONST_INT:
             self.CONST_INT(arg)
+        elif instruction == STRING:
+            self.STRING(arg)
         elif instruction == LOAD_VAR:
             self.LOAD_VAR(arg.s_value)
 
@@ -192,6 +221,18 @@ class Interpreter(object):
 
         elif instruction == PRINT:
             self.PRINT()
+        
+        elif instruction == CREATE_LIST:
+            self.CREATE_LIST(arg.i_value)
+        elif instruction == GETITEM:
+            self.GETITEM()
+        elif instruction == SETITEM:
+            self.SETITEM()
+        elif instruction == SWAPITEM:
+            self.SWAPITEM()
+
+        elif instruction == ATTRIBUTE:
+            self.ATTRIBUTE(arg.s_value)
 
         # function definition
         elif instruction == ARG:
@@ -250,6 +291,9 @@ class Interpreter(object):
         self.stack_push(self.namespace.get(name))
 
     def CONST_INT(self, value):
+        self.stack_push(value)
+
+    def STRING(self, value):
         self.stack_push(value)
 
     def STORE(self, name):
@@ -347,3 +391,34 @@ class Interpreter(object):
     def PRINT(self):
         o = self.stack_pop()
         print o.to_str()
+
+    def CREATE_LIST(self, size):
+        items = [self.stack_pop() for _ in range(size)]
+        self.stack_push(List(items))
+
+    def GETITEM(self):
+        o = self.stack_pop()
+        selector = self.stack_pop()
+        self.stack_push(o.getitem(selector))
+
+    def SETITEM(self):
+        o = self.stack_pop()
+        selector = self.stack_pop()
+        value = self.stack_pop()
+        o.setitem(selector, value)
+        self.stack_push(o)
+
+    def SWAPITEM(self):
+        o = self.stack_pop()
+        left = self.stack_pop()
+        right = self.stack_pop()
+        old_left = o.getitem(left)
+        old_right = o.getitem(right)
+        o.setitem(left, old_right)
+        o.setitem(right, old_left)
+
+        self.stack_push(o)
+
+    def ATTRIBUTE(self, name):
+        o = self.stack_pop()
+        self.stack_push(o.attribute(name))
