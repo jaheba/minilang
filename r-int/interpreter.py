@@ -25,9 +25,7 @@ MAKE_FUNC RETURN ARG ARG_COUNT PRINT CREATE_LIST GETITEM SETITEM SWAPITEM ATTRIB
 op_names = op_codes.keys()
 
 class Object(object):
-    __slots__ = 'i_value', 's_value', 'bool', 'namespace', 'address', 'arguments', 'list'
-    _immutable_fields_ = 'i_value', 's_value', 'bool'
-
+    __slots__ = ()
     def to_str(self):
         return '<Empty Object>'
 
@@ -46,35 +44,45 @@ class Integer(Object):
             return w_False
 
     def eq(self, other):
+        assert isinstance(other, Integer)
         return self._bool(self.i_value == other.i_value)
 
     def ne(self, other):
+        assert isinstance(other, Integer)
         return self._bool(self.i_value != other.i_value)
 
     def lt(self, other):
+        assert isinstance(other, Integer)
         return self._bool(self.i_value < other.i_value)
 
     def le(self, other):
+        assert isinstance(other, Integer)
         return self._bool(self.i_value <= other.i_value)
 
     def gt(self, other):
+        assert isinstance(other, Integer)
         return self._bool(self.i_value > other.i_value)
 
     def ge(self, other):
+        assert isinstance(other, Integer)
         return self._bool(self.i_value >= other.i_value)
 
     # calc
 
     def add(self, other):
+        assert isinstance(other, Integer)
         return Integer(self.i_value + other.i_value)
     
     def sub(self, other):
+        assert isinstance(other, Integer)
         return Integer(self.i_value - other.i_value)
 
     def mul(self, other):
+        assert isinstance(other, Integer)
         return Integer(self.i_value * other.i_value)
     
     def div(self, other):
+        assert isinstance(other, Integer)
         return Integer(self.i_value / other.i_value)
 
     def to_str(self):
@@ -96,26 +104,26 @@ class String(Object):
         return String(other + self.s_value)
 
 class List(Object):
-
     def __init__(self, list):
         self.list = list
 
-    def _check_bounds(self, index):
+    def _check_bounds(self, w_index):
+        assert isinstance(w_index, Integer)
+        index = w_index.i_value
         if index  >= len(self.list):
             raise IndexError('%s not <= %s' %(index, len(self.list)))
+        return index
 
     def getitem(self, w_index):
-        index = w_index.i_value
-        self._check_bounds(index)
+        index = self._check_bounds(w_index)
         return self.list[index]
 
     def setitem(self, w_index, w_object):
-        index = w_index.i_value
-        self._check_bounds(index)
+        index = self._check_bounds(w_index)
         self.list[index] = w_object
 
     def to_str(self):
-        return '[%s]' %(', '.join(item.to_str() for item in self.list))
+        return '[%s]' %(', '.join([item.to_str() for item in self.list]))
 
     def attribute(self, name):
         if name == 'length':
@@ -189,12 +197,19 @@ class Interpreter(object):
 
         # variables / consts
         if instruction == STORE:
+            assert isinstance(arg, String)
             self.STORE(arg.s_value)
+
         elif instruction == CONST_INT:
+            assert isinstance(arg, Integer)
             self.CONST_INT(arg)
+
         elif instruction == STRING:
+            assert isinstance(arg, String)
             self.STRING(arg)
+
         elif instruction == LOAD_VAR:
+            assert isinstance(arg, String)
             self.LOAD_VAR(arg.s_value)
 
         elif instruction == POP:
@@ -202,11 +217,14 @@ class Interpreter(object):
 
         # jump stuff
         elif instruction == JUMP:
+            assert isinstance(arg, Integer)
             pc = self.JUMP(arg.i_value)
         elif instruction == JNE:
+            assert isinstance(arg, Integer)
             pc = self.JNE(arg.i_value, pc)
         
         elif instruction == COMP:
+            assert isinstance(arg, String)
             self.COMP(arg.s_value)
 
         # calc
@@ -223,6 +241,7 @@ class Interpreter(object):
             self.PRINT()
         
         elif instruction == CREATE_LIST:
+            assert isinstance(arg, Integer)
             self.CREATE_LIST(arg.i_value)
         elif instruction == GETITEM:
             self.GETITEM()
@@ -232,6 +251,7 @@ class Interpreter(object):
             self.SWAPITEM()
 
         elif instruction == ATTRIBUTE:
+            assert isinstance(arg, String)
             self.ATTRIBUTE(arg.s_value)
 
         # function definition
@@ -240,10 +260,13 @@ class Interpreter(object):
         elif instruction == ARG_COUNT:
             self.ARG_COUNT(arg)
         elif instruction == MAKE_FUNC:
+            assert isinstance(arg, String)
             self.MAKE_FUNC(arg.s_value, pc)
         elif instruction == CALL:
+            assert isinstance(arg, Integer)
             pc = self.CALL(arg.i_value, pc)
         elif instruction == RETURN:
+            assert isinstance(arg, Integer)
             pc = self.RETURN(arg.i_value)
 
         else:
@@ -353,9 +376,16 @@ class Interpreter(object):
         self.stack_push(arg)
 
     def MAKE_FUNC(self, name, pc):
-        count = self.stack_pop().i_value
+        w_count = self.stack_pop()
+        assert isinstance(w_count, Integer)
+        count = w_count.i_value
 
-        args = [self.stack_pop().s_value for _ in range(count)]
+        args = []
+        for _ in range(count):
+            w_arg_name = self.stack_pop()
+            assert isinstance(w_arg_name, String)
+            args.append(w_arg_name.s_value)
+
         args.reverse()
 
         self.namespace.set(name, Function(
@@ -365,15 +395,17 @@ class Interpreter(object):
         ))
 
     def CALL(self, argcount, pc):
-        func = self.stack_pop()
+        w_func = self.stack_pop()
+        assert isinstance(w_func, Function)
+
         args = [self.stack_pop() for _ in range(argcount)]
         args.reverse()
 
         self.call_stack_push(pc)
         self.namespace = Namespace(self.namespace)
-        pc = func.address
+        pc = w_func.address
 
-        for i, name in enumerate(func.arguments):
+        for i, name in enumerate(w_func.arguments):
             value = args[i]
             self.namespace.set(name, value)
 
