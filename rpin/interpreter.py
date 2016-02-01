@@ -16,7 +16,8 @@ def debug(text):
     if DEBUG:
         print >> sys.stderr, text
 
-from rpython.rlib.jit import JitDriver, purefunction, hint
+from rpython.rlib import jit
+from rpython.rlib.jit import JitDriver
 
 # meta programming
 op_codes = {}
@@ -266,6 +267,7 @@ class Interpreter(object):
             namespace=Namespace(self.namespace)
         ))
 
+    @jit.unroll_safe
     def CALL(self, argcount, pc):
         w_func = self.stack_pop()
         assert isinstance(w_func, Function)
