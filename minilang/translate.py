@@ -3,11 +3,15 @@
 
 from minilang import compile
 
-import sys
 
-with open(sys.argv[1]) as fobj:
-    text = fobj.read()
+def to_bytecode(path):
+    with open(path) as fobj:
+        text = fobj.read()
+
+    return '\n'.join('%s %s' %(inst) for inst in compile(text))
 
 
-for inst in compile(text):
-    print inst[0], inst[1]
+if __name__ == '__main__':
+    import sys
+
+    print to_bytecode(sys.argv[1])
