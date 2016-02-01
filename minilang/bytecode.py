@@ -131,9 +131,12 @@ class ByteCodeCompiler(object):
 
         if node.type == '+':
             self.program.append(Instruction('PLUS', None))
-
         elif node.type == '-':
             self.program.append(Instruction('SUB', None))
+        elif node.type == '*':
+            self.program.append(Instruction('MUL', None))
+        elif node.type == '/':
+            self.program.append(Instruction('DIV', None))
         else:
             raise ValueError(node.type)
 
