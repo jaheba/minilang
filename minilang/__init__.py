@@ -5,7 +5,6 @@ from bytecode import ByteCodeCompiler
 
 def compile(text):
     ast = parse(text)
-    print >> sys.stderr, ast
     cc = ByteCodeCompiler()
     cc.compile(ast)
     return cc.program
