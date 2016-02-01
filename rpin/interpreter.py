@@ -7,6 +7,10 @@
 
 import os, sys
 
+from rpin.core import Namespace
+from rpin.exceptions import Panic
+from rpin.types import Object, Integer, String, List, Function, Bool, w_True, w_False
+
 DEBUG = os.environ.get('DEBUG', None)
 def debug(text):
     if DEBUG:
@@ -24,141 +28,6 @@ MAKE_FUNC RETURN ARG ARG_COUNT PRINT CREATE_LIST GETITEM SETITEM SWAPITEM ATTRIB
 
 op_names = op_codes.keys()
 
-class Object(object):
-    __slots__ = ()
-    def to_str(self):
-        return '<Empty Object>'
-
-
-class Integer(Object):
-    _immutable_fields_ = "i_value",
-
-    def __init__(self, value):
-        # assert type(value) is int
-        self.i_value = value
-
-    def _bool(self, bool):
-        if bool:
-            return w_True
-        else:
-            return w_False
-
-    def eq(self, other):
-        assert isinstance(other, Integer)
-        return self._bool(self.i_value == other.i_value)
-
-    def ne(self, other):
-        assert isinstance(other, Integer)
-        return self._bool(self.i_value != other.i_value)
-
-    def lt(self, other):
-        assert isinstance(other, Integer)
-        return self._bool(self.i_value < other.i_value)
-
-    def le(self, other):
-        assert isinstance(other, Integer)
-        return self._bool(self.i_value <= other.i_value)
-
-    def gt(self, other):
-        assert isinstance(other, Integer)
-        return self._bool(self.i_value > other.i_value)
-
-    def ge(self, other):
-        assert isinstance(other, Integer)
-        return self._bool(self.i_value >= other.i_value)
-
-    # calc
-
-    def add(self, other):
-        assert isinstance(other, Integer)
-        return Integer(self.i_value + other.i_value)
-    
-    def sub(self, other):
-        assert isinstance(other, Integer)
-        return Integer(self.i_value - other.i_value)
-
-    def mul(self, other):
-        assert isinstance(other, Integer)
-        return Integer(self.i_value * other.i_value)
-    
-    def div(self, other):
-        assert isinstance(other, Integer)
-        return Integer(self.i_value / other.i_value)
-
-    def to_str(self):
-        return str(self.i_value)
-
-class String(Object):
-    _immutable_fields_ = "s_value",
-
-    def __init__(self, value):
-        self.s_value = value
-
-    def to_str(self):
-        return self.s_value
-
-    def add(self, other):
-        return other.ladd_string(self.s_value)
-
-    def ladd_string(self, other):
-        return String(other + self.s_value)
-
-class List(Object):
-    def __init__(self, list):
-        self.list = list
-
-    def _check_bounds(self, w_index):
-        assert isinstance(w_index, Integer)
-        index = w_index.i_value
-        if index  >= len(self.list):
-            raise IndexError('%s not <= %s' %(index, len(self.list)))
-        return index
-
-    def getitem(self, w_index):
-        index = self._check_bounds(w_index)
-        return self.list[index]
-
-    def setitem(self, w_index, w_object):
-        index = self._check_bounds(w_index)
-        self.list[index] = w_object
-
-    def to_str(self):
-        return '[%s]' %(', '.join([item.to_str() for item in self.list]))
-
-    def attribute(self, name):
-        if name == 'length':
-            return Integer(len(self.list))
-        else:
-            raise AttributeError('uknown attribute %s' %name)
-
-
-class Bool(Object):
-    _immutable_fields_ = "bool",
-
-    def __init__(self, bool):
-        self.bool = bool
-
-    def bool_value(self):
-        return self.bool
-
-    def to_str(self):
-        if self.bool:
-            return 'True'
-        else:
-            return 'False'
-
-w_True = Bool(True)
-w_False = Bool(False)
-
-
-class Function(Object):
-    def __init__(self, address, arguments, namespace):
-        self.address = address
-        self.arguments = arguments
-        self.namespace = namespace
-
-    def to_str(self):
-        return '<fn at %s>' %self.address
 
 def get_location(pc, program, program_args):
     inst = program[pc]
@@ -171,7 +40,7 @@ jitdriver = JitDriver(greens=['pc', 'program', 'program_args'], reds=['interpret
 
 RECURSION_DEPTH = 200
 
-from core import Namespace
+
 
 class Interpreter(object):
     _immutable_fields_ = ("program[*]", "program_args[*]")
@@ -277,14 +146,17 @@ class Interpreter(object):
 
     def run(self):
         pc = 0
-        while True:
-            jitdriver.jit_merge_point(
-                pc=pc, program=self.program, program_args=self.program_args,
-                interpreter=self)
-            
-            pc = self.next(pc)
-            if pc == -1:
-                break
+        try:
+            while True:
+                jitdriver.jit_merge_point(
+                    pc=pc, program=self.program, program_args=self.program_args,
+                    interpreter=self)
+                
+                pc = self.next(pc)
+                if pc == -1:
+                    break
+        except Panic as e:
+            print 'PANIC: ' + str(e)
 
     def _stack_pop_two(self):
         return self.stack_pop(), self.stack_pop()
@@ -330,7 +202,7 @@ class Interpreter(object):
     def JNE(self, pc, old_pc):
         value = self.stack_pop()
 
-        if value is w_False:
+        if value is w_False or not value.to_bool():
             return self.JUMP(pc)
         return old_pc
 

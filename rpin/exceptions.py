@@ -1,0 +1,2 @@
+class Panic(Exception):
+    pass
