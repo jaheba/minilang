@@ -37,7 +37,7 @@ t_LBRACKET = r'\['
 t_RBRACKET = r'\]'
 t_SEMICOLON = r';'
 t_COMMA = r','
-t_COLON = r':'
+t_COLON = r'::'
 
 t_RETURN = r'\^'
 
