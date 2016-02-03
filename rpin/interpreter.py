@@ -298,6 +298,7 @@ class Interpreter(object):
         o = self.stack_pop()
         print o.to_str()
 
+    @jit.unroll_safe
     def CREATE_LIST(self, size):
         items = [self.stack_pop() for _ in range(size)]
         self.stack_push(List(items))
