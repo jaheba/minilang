@@ -17,11 +17,10 @@ def compile_mm(path):
         fobj.write(to_bytecode(path))
 
 def multitime(cmd, n=1):
-    print  ' '.join(['multitime', '-n', str(n)] + cmd)
     subprocess.call(['multitime', '-n', str(n)] + cmd)
 
 def bench_mm(target, n):
-    interpreter = os.path.join(basepath, '..', 'target-c')
+    interpreter = os.path.normpath(os.path.join(basepath, '..', 'target-c'))
     multitime([interpreter, os.path.abspath(target)], n=n)
 
 def bench_pypy(target, n):
