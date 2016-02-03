@@ -1,8 +1,13 @@
 
 from rpin.exceptions import Panic
 
+from rpython.rlib import rerased
+from rpython.rlib.objectmodel import import_from_mixin
+
+
 class Object(object):
     __slots__ = ()
+
     def to_str(self):
         return '<Empty Object>'
 
@@ -10,28 +15,23 @@ class Object(object):
         exec '''def {name}(self, other):
         raise Panic('Operation {op} not defined for %s'
             %self.__class__.__name__)'''.format(name=name, op=op)
-    
-
 
         for type_ in 'integer', 'string', 'list', 'bool':
             exec '''def {name}__{type}(self, other):
         raise Panic('Can find operation {op} %s for and {type}'
             %self.__class__.__name__)'''.format(name=name, op=op, type=type_)
 
+    def add__integer(self, other):
+        raise Panic('Can not add %s to Integer' %self.__class__.__name__)
 
+    def sub__integer(self, other):
+        raise Panic('Can not subtract %s from Integer' %self.__class__.__name__)
 
-    # def add__integer(self, other):
-    #     raise Panic('Can not add %s to Integer' %self.__class__.__name__)
+    def mul__integer(self, other):
+        raise Panic('Can not multiply %s by Integer' %self.__class__.__name__)
 
-    # def sub__integer(self, other):
-    #     raise Panic('Can not subtract %s from Integer' %self.__class__.__name__)
-
-    # def mul__integer(self, other):
-    #     raise Panic('Can not multiply %s by Integer' %self.__class__.__name__)
-
-    # def div__integer(self, other):
-    #     raise Panic('Can not divide %s by Integer' %self.__class__.__name__)
-
+    def div__integer(self, other):
+        raise Panic('Can not divide %s by Integer' %self.__class__.__name__)
 
     def eq(self, other):
         raise Panic('Comparison == not defined for %s' %self.__class__.__name__)
@@ -79,10 +79,9 @@ class Integer(Object):
     for name, op in ('add', '+'), ('sub', '-'), ('mul', '*'), ('div', '//'):
         exec '''def {name}(self, other):
             return other.l{name}__integer(self.i_value)'''.format(name=name)
-        
+
         exec '''def l{name}__integer(self, i_value):
             return Integer(i_value {op} self.i_value)'''.format(name=name, op=op)
-
 
 
 class String(Object):
@@ -103,36 +102,182 @@ class String(Object):
     def ladd__string(self, other):
         return String(other + self.s_value)
 
+
 class List(Object):
-    def __init__(self, list):
-        self.list = list
+    def __init__(self):
+        self.strategy = emptyListStrategy
+        self.empty_list()
 
     def _check_bounds(self, w_index):
         assert isinstance(w_index, Integer)
         index = w_index.i_value
-        if index  >= len(self.list):
-            raise IndexError('%s not <= %s' %(index, len(self.list)))
+        if index >= self.length():
+            raise IndexError('%s not <= %s' %(index, self.length()))
         return index
 
-    def getitem(self, w_index):
-        index = self._check_bounds(w_index)
-        return self.list[index]
-
-    def setitem(self, w_index, w_object):
-        index = self._check_bounds(w_index)
-        self.list[index] = w_object
-
-    def to_str(self):
-        return '[%s]' %(', '.join([item.to_str() for item in self.list]))
-
     def to_bool(self):
-        return len(self.list)
+        return self.length() > 0
 
     def attribute(self, name):
         if name == 'length':
-            return Integer(len(self.list))
+            return Integer(self.length())
         else:
             raise AttributeError('uknown attribute %s' %name)
+
+    def getitem(self, w_index):
+        index = self._check_bounds(w_index)
+        return self.strategy.getitem(self, index)
+
+    def setitem(self, w_index, w_object):
+        index = self._check_bounds(w_index)
+        self.strategy.setitem(self, index, w_object)
+
+    def append(self, w_item):
+        self.strategy.append(self, w_item)
+
+    def length(self):
+        return self.strategy.length(self)
+
+    def to_str(self):
+        return self.strategy.to_str(self)
+
+    def empty_list(self):
+        self.storage = self.strategy.empty_list(self)
+
+
+class ListStrategy(object):
+    def to_str(self, w_list):
+        raise NotImplementedError
+
+    def getitem(self, w_list, index):
+        raise NotImplementedError
+
+    def setitem(self, w_list, index, w_item):
+        raise NotImplementedError
+
+    def append(self, w_list, index):
+        raise NotImplementedError
+
+    def to_str(self, w_list):
+        raise NotImplementedError
+
+    def length(self, w_list):
+        raise NotImplementedError
+
+    def empty_list(self, w_list):
+        raise NotImplementedError
+
+    def length(self, w_list):
+        raise NotImplementedError
+
+
+class AbstractListStrategy(object):
+    @staticmethod
+    def unerase(storage):
+        raise NotImplementedError("abstract base class")
+
+    @staticmethod
+    def erase(obj):
+        raise NotImplementedError("abstract base class")
+
+    def length(self, w_list):
+        return len(self.unerase(w_list.storage))
+
+
+class EmptyListStrategy(ListStrategy):
+    import_from_mixin(AbstractListStrategy)
+
+    erase, unerase = rerased.new_erasing_pair("empty")
+    erase = staticmethod(erase)
+    unerase = staticmethod(unerase)
+
+    def append(self, w_list, w_item):
+        if type(w_item) is Integer:
+            w_list.strategy = integerListStrategy
+        else:
+            w_list.strategy = objectListStrategy
+
+        w_list.empty_list()
+        w_list.append(w_item)
+
+    def to_str(self, w_list):
+        return '[]'
+
+    def empty_list(self, w_list):
+        return self.erase([])
+
+
+emptyListStrategy = EmptyListStrategy()
+
+
+class ObjectListStrategy(ListStrategy):
+    import_from_mixin(AbstractListStrategy)
+
+    erase, unerase = rerased.new_erasing_pair("object")
+    erase = staticmethod(erase)
+    unerase = staticmethod(unerase)
+
+    def append(self, w_list, w_item):
+        self.unerase(w_list.storage).append(w_item)
+
+    def to_str(self, w_list):
+        return '[%s]' %(', '.join([item.to_str()
+            for item in self.unerase(w_list.storage)]))
+
+    def getitem(self, w_list, index):
+        return self.unerase(w_list.storage)[index]
+
+    def setitem(self, w_list, index, w_item):
+        self.unerase(w_list.storage)[index] = w_item
+
+    def empty_list(self, w_list):
+        return self.erase([])
+
+
+objectListStrategy = ObjectListStrategy()
+
+
+class IntegerListStrategy(ListStrategy):
+    import_from_mixin(AbstractListStrategy)
+
+    erase, unerase = rerased.new_erasing_pair("integer")
+    erase = staticmethod(erase)
+    unerase = staticmethod(unerase)
+
+    def append(self, w_list, w_item):
+        if isinstance(w_item, Integer):
+            self.unerase(w_list.storage).append(w_item.i_value)
+        else:
+            self.switch_to_object_strategy(w_list)
+            w_list.append(w_item)
+
+    def switch_to_object_strategy(self, w_list):
+        storage = []
+
+        for i in self.unerase(w_list.storage):
+            storage.append(Integer(i))
+
+        w_list.strategy = objectListStrategy
+        w_list.storage = objectListStrategy.erase(storage)
+
+    def to_str(self, w_list):
+        return '[%s]' %(', '.join([str(x) for x in self.unerase(w_list.storage)]))
+
+    def getitem(self, w_list, index):
+        return Integer(self.unerase(w_list.storage)[index])
+
+    def setitem(self, w_list, index, w_item):
+        if type(w_item) is Integer:
+            self.unerase(w_list.storage)[index] = w_item.i_value
+        else:
+            self.switch_to_object_strategy(w_list)
+            w_list.strategy.setitem(w_list, index, w_item)
+
+    def empty_list(self, w_list):
+        return self.erase([])
+
+
+integerListStrategy = IntegerListStrategy()
 
 
 class Bool(Object):

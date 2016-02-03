@@ -7,6 +7,9 @@
 
 import os, sys
 
+from rpython.rlib import jit
+from rpython.rlib.jit import JitDriver
+
 from rpin.core import Namespace
 from rpin.exceptions import Panic
 from rpin.types import Object, Integer, String, List, Function, Bool, w_True, w_False
@@ -16,8 +19,7 @@ def debug(text):
     if DEBUG:
         print >> sys.stderr, text
 
-from rpython.rlib import jit
-from rpython.rlib.jit import JitDriver
+
 
 # meta programming
 op_codes = {}
@@ -300,8 +302,11 @@ class Interpreter(object):
 
     @jit.unroll_safe
     def CREATE_LIST(self, size):
-        items = [self.stack_pop() for _ in range(size)]
-        self.stack_push(List(items))
+        w_list = List()
+        for _ in range(size):
+            w_list.append(self.stack_pop())
+
+        self.stack_push(w_list)
 
     def GETITEM(self):
         o = self.stack_pop()
