@@ -40,7 +40,6 @@ class Namespace(object):
         self.storage = []
         self.parent = parent
 
-    # @jit.elidable
     def get(self, name):
         map = jit.hint(self.map, promote=True)
         index = map.getindex(jit.hint(name, promote_string=True))
@@ -63,6 +62,3 @@ class Namespace(object):
         self.map = map.new_map_with_additional_attribute(name)
         self.storage.append(value)
 
-    # @jit.elidable
-    # def clone(self, namespace):
-    #     return Namespace(namespace)
