@@ -9,13 +9,16 @@ reserved = {
     'else': 'ELSE',
     'fn': 'FN',
     'print': 'PRINT',
+    'break': 'BREAK',
+    'continue': 'CONTINUE',
+    'assert': 'ASSERT',
 }
 
 tokens = [
     'NAME', 'ASSIGN', 'NUMBER', 'STRING',
     'COMP', 'LRARROW',
     'LPAREN', 'RPAREN', 'LCURL', 'RCURL', 'LBRACKET', 'RBRACKET',
-    'PLUS','MINUS','TIMES','DIVIDE',
+    'PLUS','MINUS','TIMES','DIVIDE', 'MODULUS',
     'SEMICOLON', 'COMMA', 'COLON', 'RETURN', 
 ]
 
@@ -27,6 +30,7 @@ t_PLUS    = r'\+'
 t_MINUS   = r'-'
 t_TIMES   = r'\*'
 t_DIVIDE  = r'/'
+t_MODULUS = r'%'
 # t_EQUALS  = r'='
 
 t_LPAREN  = r'\('
@@ -53,11 +57,11 @@ t_ignore = ' \t\n'
 #    of decreasing regular expression length (longer expressions are added first).
 
 def t_LRARROW(t):
-    r'<=>'
+    r'<:>'
     return t
 
 def t_COMP(t):
-    r'==|!=|<|<=|>|>='
+    r'==|!=|<=|>=|<|>'
     return t
 
 def t_NAME(t):
@@ -80,6 +84,7 @@ lexer = lex.lex()
 
 precedence = (
     ('nonassoc', 'COMP'),
+    ('left','MODULUS'),
     ('left','PLUS','MINUS'),
     ('left','TIMES','DIVIDE'),
     # ('right','UMINUS'),
@@ -95,15 +100,18 @@ LOAD_VAR = namedtuple('LOAD_VAR', ['name'])
 LOOP = namedtuple('LOOP', ['condition', 'body'])
 COND = namedtuple('COND', ['condition', 'body', 'alt'])
 CALL = namedtuple('CALL', ['name', 'args'])
+METHOD_CALL = namedtuple('METHOD_CALL', ['obj', 'method', 'args'])
 FUNC = namedtuple('FUNC', ['name', 'args', 'body'])
 RET = namedtuple('RET', ['expression'])
 PRINT = namedtuple('PRINT', ['expression'])
+ASSERT = namedtuple('ASSERT', ['expression'])
 LIST = namedtuple('LIST', ['items'])
 GETITEM = namedtuple('GETITEM', ['target', 'selector'])
 SETITEM = namedtuple('SETITEM', ['target', 'selector', 'value'])
 SWAPITEM = namedtuple('SWAPITEM', ['target', 'left', 'right'])
 ATTRIBUTE = namedtuple('ATTRIBUTE', ['expression', 'name'])
-
+BREAK = namedtuple('BREAK', [])
+CONTINUE = namedtuple('CONTINUE', [])
 
 def p_statements(p):
     '''statements : statements statement
@@ -122,9 +130,12 @@ def p_statement(p):
                  | return SEMICOLON
                  | expression SEMICOLON
                  | print SEMICOLON
+                 | assert SEMICOLON
                  | if
                  | while
                  | func
+                 | break SEMICOLON
+                 | continue SEMICOLON
     '''
     p[0] = p[1]
 
@@ -192,9 +203,21 @@ def p_return(p):
     p[0] = RET(p[2])
 
 
+def p_break(p):
+    'break : BREAK'
+    p[0] = BREAK()
+
+def p_continue(p):
+    'continue : CONTINUE'
+    p[0] = CONTINUE()
+
 def p_print(p):
     '''print : PRINT expression'''
     p[0] = PRINT(p[2])
+
+def p_assert(p):
+    '''assert : ASSERT expression'''
+    p[0] = ASSERT(p[2])
 
 def p_expression_call(p):
     '''atom_expression : atom_expression LPAREN expression_list RPAREN
@@ -217,8 +240,12 @@ def p_expression_group(p):
     'expression : LPAREN expression RPAREN'
     p[0] = p[2]
 
+def p_expression_method(p):
+    'atom_expression : atom_expression COLON NAME LPAREN expression_list RPAREN'
+    p[0] = METHOD_CALL(obj=p[1], method=p[3], args=p[5])
+
 def p_epression_attribute(p):
-    'atom_expression : expression COLON NAME'
+    'atom_expression : atom_expression COLON NAME'
     p[0] = ATTRIBUTE(p[1], name=p[3])
 
 def p_while(p):
@@ -255,6 +282,7 @@ def p_expression_binop(p):
                   | expression MINUS expression
                   | expression TIMES expression
                   | expression DIVIDE expression
+                  | expression MODULUS expression
     '''
 
     p[0] = BINOP(

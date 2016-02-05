@@ -5,7 +5,8 @@
 
 '''
 
-import os, sys
+import os
+import sys
 
 from rpython.rlib import jit
 from rpython.rlib.jit import JitDriver
@@ -14,18 +15,20 @@ from rpin.core import Namespace
 from rpin.exceptions import Panic
 from rpin.types import Object, Integer, String, List, Function, Bool, w_True, w_False
 
+
 DEBUG = os.environ.get('DEBUG', None)
+
 def debug(text):
     if DEBUG:
         print >> sys.stderr, text
 
 
-
 # meta programming
 op_codes = {}
 
-for i, name in enumerate('''STORE CONST_INT STRING POP LOAD_VAR JUMP JNE COMP PLUS SUB MUL DIV CALL
-MAKE_FUNC RETURN ARG ARG_COUNT PRINT CREATE_LIST GETITEM SETITEM SWAPITEM ATTRIBUTE'''.split()):
+for i, name in enumerate('''STORE CONST_INT STRING POP LOAD_VAR JUMP JNE COMP
+PLUS SUB MUL DIV MODULUS CALL ASSERT MAKE_FUNC RETURN ARG ARG_COUNT PRINT CREATE_LIST
+GETITEM SETITEM SWAPITEM ATTRIBUTE CALL_METHOD LOAD_METHOD'''.split()):
     globals()[name] = i
     op_codes[name] = i
 
@@ -35,7 +38,7 @@ op_names = op_codes.keys()
 def get_location(pc, program, program_args):
     inst = program[pc]
     arg = program_args[pc]
-    return 'PC: %s: %s with arg %s' %(pc, op_names[inst], arg.to_str())
+    return 'PC: %s: %s with arg %s' % (pc, op_names[inst], arg.to_str())
 
 jitdriver = JitDriver(greens=['pc', 'program', 'program_args'], reds=['interpreter'],
         get_printable_location=get_location)
@@ -44,9 +47,9 @@ jitdriver = JitDriver(greens=['pc', 'program', 'program_args'], reds=['interpret
 RECURSION_DEPTH = 200
 
 
-
 class Interpreter(object):
     _immutable_fields_ = ("program[*]", "program_args[*]")
+
     def __init__(self, program, program_args):
         self.stack = [Object()] * 100
         self.stack_ptr = 0
@@ -57,6 +60,11 @@ class Interpreter(object):
         self.call_stack = [0] * RECURSION_DEPTH
 
         self.namespace = Namespace()
+        self.bootstrap_namespace()
+
+    def bootstrap_namespace(self):
+        self.namespace.set('true', w_True)
+        self.namespace.set('false', w_False)
 
     def next(self, pc):
         if pc >= len(self.program):
@@ -90,11 +98,17 @@ class Interpreter(object):
         # jump stuff
         elif instruction == JUMP:
             assert isinstance(arg, Integer)
-            pc = self.JUMP(arg.i_value)
+            target = self.JUMP(arg.i_value)
+            # if target < pc:
+                # jitdriver.can_enter_jit(pc=pc, program=self.program,
+                    # program_args=self.program_args, interpreter=self)
+            pc = target
+
+        # jumps always forwards
         elif instruction == JNE:
             assert isinstance(arg, Integer)
             pc = self.JNE(arg.i_value, pc)
-        
+
         elif instruction == COMP:
             assert isinstance(arg, String)
             self.COMP(arg.s_value)
@@ -108,10 +122,14 @@ class Interpreter(object):
             self.MUL(arg)
         elif instruction == DIV:
             self.DIV(arg)
+        elif instruction == MODULUS:
+            self.MODULUS(arg)
 
         elif instruction == PRINT:
             self.PRINT()
-        
+        elif instruction == ASSERT:
+            self.ASSERT()
+
         elif instruction == CREATE_LIST:
             assert isinstance(arg, Integer)
             self.CREATE_LIST(arg.i_value)
@@ -141,6 +159,12 @@ class Interpreter(object):
             assert isinstance(arg, Integer)
             pc = self.RETURN(arg.i_value)
 
+        elif instruction == LOAD_METHOD:
+            self.LOAD_METHOD(arg)
+        elif instruction == CALL_METHOD:
+            assert isinstance(arg, Integer)
+            self.CALL_METHOD(arg.i_value)
+
         else:
             raise ValueError('opcode %s not yet implemented' %op_names[instruction])
 
@@ -154,12 +178,14 @@ class Interpreter(object):
                 jitdriver.jit_merge_point(
                     pc=pc, program=self.program, program_args=self.program_args,
                     interpreter=self)
-                
+
                 pc = self.next(pc)
                 if pc == -1:
                     break
         except Panic as e:
             print 'PANIC: ' + str(e)
+            return 1
+        return 0
 
     def _stack_pop_two(self):
         return self.stack_pop(), self.stack_pop()
@@ -197,7 +223,6 @@ class Interpreter(object):
     def STORE(self, name):
         value = self.stack_pop()
         self.namespace.set(name, value)
-
 
     def JUMP(self, pc):
         return pc - 1
@@ -243,6 +268,10 @@ class Interpreter(object):
     def DIV(self, _=None):
         b, a = self._stack_pop_two()
         self.stack_push(a.div(b))
+
+    def MODULUS(self, _=None):
+        b, a = self._stack_pop_two()
+        self.stack_push(a.mod(b))
 
     def ARG(self, arg):
         self.stack_push(arg)
@@ -296,6 +325,22 @@ class Interpreter(object):
         pc = self.call_stack_pop()
         return pc
 
+    def LOAD_METHOD(self, name):
+        self.stack_push(name)
+
+    def CALL_METHOD(self, argcount):
+        w_method_name = self.stack_pop()
+        assert isinstance(w_method_name, String)
+        method_name = w_method_name.s_value
+
+        w_obj = self.stack_pop()
+
+        args = [self.stack_pop() for _ in range(argcount)]
+        args.reverse()
+
+        result = w_obj.call_method(method_name, args)
+        self.stack_push(result)
+
     def PRINT(self):
         o = self.stack_pop()
         print o.to_str()
@@ -334,3 +379,7 @@ class Interpreter(object):
     def ATTRIBUTE(self, name):
         o = self.stack_pop()
         self.stack_push(o.attribute(name))
+
+    def ASSERT(self):
+        if not self.stack_pop().to_bool():
+            raise Panic('Assertion failed')

@@ -11,7 +11,10 @@ class Object(object):
     def to_str(self):
         return '<Empty Object>'
 
-    for name, op in ('add', '+'), ('sub', '-'), ('mul', '*'), ('div', '/'):
+    def call_method(self, name, args):
+        raise NotImplementedError
+
+    for name, op in ('add', '+'), ('sub', '-'), ('mul', '*'), ('div', '/'), ('mod', '%%'):
         exec '''def {name}(self, other):
         raise Panic('Operation {op} not defined for %s'
             %self.__class__.__name__)'''.format(name=name, op=op)
@@ -76,7 +79,7 @@ class Integer(Object):
                 return w_False'''.format(name=name, op=op)
 
     # calc
-    for name, op in ('add', '+'), ('sub', '-'), ('mul', '*'), ('div', '//'):
+    for name, op in ('add', '+'), ('sub', '-'), ('mul', '*'), ('div', '//'), ('mod', '%'):
         exec '''def {name}(self, other):
             return other.l{name}__integer(self.i_value)'''.format(name=name)
 
@@ -123,6 +126,12 @@ class List(Object):
             return Integer(self.length())
         else:
             raise AttributeError('uknown attribute %s' %name)
+
+    def call_method(self, name, args):
+        if name == 'append':
+            assert len(args) == 1
+            self.append(args[0])
+            return self
 
     def getitem(self, w_index):
         index = self._check_bounds(w_index)

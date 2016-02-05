@@ -16,6 +16,7 @@ class ByteCodeCompiler(object):
         self.program = []
         self.labels = []
         self.labels_end = []
+        self.loop_labels = []
         self.if_label = None
 
     def compile(self, ast):
@@ -53,6 +54,15 @@ class ByteCodeCompiler(object):
 
     def mark_label_end(self, index):
         self.labels_end[index] = len(self.program)
+
+    def next_loop_label(self):
+        label = self.next_label()
+        self.loop_labels.append(label)
+        return label
+
+    def mark_loop_label_end(self, index):
+        self.mark_label_end(index)
+        self.loop_labels.pop()
 
     def eval(self, node):
         bc_name = type(node).__name__
@@ -106,7 +116,7 @@ class ByteCodeCompiler(object):
             self.if_label = None
 
     def LOOP(self, node):
-        label = self.next_label()
+        label = self.next_loop_label()
 
         # eval condition
         self.eval(node.condition)
@@ -118,9 +128,19 @@ class ByteCodeCompiler(object):
         self.eval_block(node.body)
 
         # jump back (body end)
+        self.CONTINUE()
+        # self.program.append(Instruction('JUMP', self.labels[label]))
+
+        self.mark_loop_label_end(label)
+
+    def BREAK(self, node=None):
+        label = self.loop_labels[-1]
+        self.program.append(LabeledInstruction('JUMP', label))
+
+    def CONTINUE(self, node=None):
+        label = self.loop_labels[-1]
         self.program.append(Instruction('JUMP', self.labels[label]))
 
-        self.mark_label_end(label)
 
     def COMP(self, node):
         self._eval_left_right(node)
@@ -137,6 +157,8 @@ class ByteCodeCompiler(object):
             self.program.append(Instruction('MUL', None))
         elif node.type == '/':
             self.program.append(Instruction('DIV', None))
+        elif node.type == '%':
+            self.program.append(Instruction('MODULUS', None))
         else:
             raise ValueError(node.type)
 
@@ -147,6 +169,13 @@ class ByteCodeCompiler(object):
         self.eval(node.name)
         self.program.append(Instruction('CALL', len(node.args)))
 
+    def METHOD_CALL(self, node):
+        for arg in node.args[::-1]:
+            self.eval(arg)
+
+        self.eval(node.obj )
+        self.program.append(Instruction('LOAD_METHOD', node.method))
+        self.program.append(Instruction('CALL_METHOD', len(node.args)))
 
     def FUNC(self, node):
         for arg in node.args[::-1]:
@@ -173,6 +202,10 @@ class ByteCodeCompiler(object):
     def PRINT(self, node):
         self.eval(node.expression)
         self.program.append(Instruction('PRINT', None))
+ 
+    def ASSERT(self, node):
+        self.eval(node.expression)
+        self.program.append(Instruction('ASSERT', None))
 
     def LIST(self, node):
         for item in node.items[::-1]:

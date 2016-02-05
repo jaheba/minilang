@@ -1,6 +1,6 @@
 import os
 from interpreter import Interpreter, Object, Integer, String
-from interpreter import op_codes, CONST_INT, JUMP, JNE, ARG_COUNT, CALL, RETURN, CREATE_LIST
+from interpreter import op_codes, CONST_INT, JUMP, JNE, ARG_COUNT, CALL, RETURN, CREATE_LIST, CALL_METHOD
 
 
 def parse(text):
@@ -13,7 +13,7 @@ def parse(text):
         op_code = op_codes[inst]
         program.append(op_code)
 
-        if op_code in (CONST_INT, JUMP, JNE, ARG_COUNT, CALL, RETURN, CREATE_LIST):
+        if op_code in (CONST_INT, JUMP, JNE, ARG_COUNT, CALL, CALL_METHOD, RETURN, CREATE_LIST):
             args.append(Integer(int(arg)))
             # program.append((op_code, Integer(int(arg))))
             # program.append((op_code, Integer.from_str(arg)))
@@ -38,7 +38,7 @@ def run(fp):
 
     program, args = parse(program_contents)
     i = Interpreter(program, args)
-    i.run()
+    return i.run()
     # program, bm = parse(program_contents)
     # mainloop(program, bm)
 
