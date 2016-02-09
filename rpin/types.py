@@ -55,6 +55,10 @@ class Object(object):
         raise Panic('Comparison >= not defined for %s' %self.__class__.__name__)
 
 
+# class Struct(Object):
+#     def __init__(self, field_name, types):
+#         pass
+
 class Integer(Object):
     _immutable_fields_ = "i_value",
 
@@ -309,10 +313,11 @@ w_False = Bool(False)
 
 
 class Function(Object):
-    def __init__(self, address, arguments, namespace):
+    def __init__(self, address, arguments, locals_count, stack_depth):
         self.address = address
         self.arguments = arguments
-        self.namespace = namespace
+        self.locals_count = locals_count
+        self.stack_depth = stack_depth
 
     def to_str(self):
         return '<fn at %s>' %self.address

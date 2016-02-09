@@ -26,59 +26,100 @@ def debug(text):
 # meta programming
 op_codes = {}
 
-for i, name in enumerate('''STORE CONST_INT STRING POP LOAD_VAR JUMP JNE COMP
+for i, name in enumerate('''STORE_LOCAL STORE_GLOBAL CONST_INT STRING POP LOAD_LOCAL LOAD_GLOBAL JUMP JNE COMP
 PLUS SUB MUL DIV MODULUS CALL ASSERT MAKE_FUNC RETURN ARG ARG_COUNT PRINT CREATE_LIST
-GETITEM SETITEM SWAPITEM ATTRIBUTE CALL_METHOD LOAD_METHOD'''.split()):
+GETITEM SETITEM SWAPITEM ATTRIBUTE CALL_METHOD LOAD_METHOD
+NEW_STRUCT STRUCT_TYPE STRUCT_FIELD'''.split()):
     globals()[name] = i
     op_codes[name] = i
 
 op_names = op_codes.keys()
 
 
-def get_location(pc, program, program_args):
-    inst = program[pc]
-    arg = program_args[pc]
+def get_location(pc, code):
+    inst = code.program[pc]
+    arg = code.program_args[pc]
     return 'PC: %s: %s with arg %s' % (pc, op_names[inst], arg.to_str())
 
-jitdriver = JitDriver(greens=['pc', 'program', 'program_args'], reds=['interpreter'],
-        get_printable_location=get_location)
+class MyJitDriver(JitDriver):
+    greens = ['pc', 'code']
+    reds = ['interpreter']
+    virtualizables = ['interpreter']
+
+jitdriver = MyJitDriver(get_printable_location=get_location)
 
 
 RECURSION_DEPTH = 200
 
 
-class Interpreter(object):
-    _immutable_fields_ = ("program[*]", "program_args[*]")
+class Code(object):
+    _immutable_fields_ = ("program[*]", "program_args[*]", "length")
 
     def __init__(self, program, program_args):
-        self.stack = [Object()] * 100
-        self.stack_ptr = 0
         self.program = program
         self.program_args = program_args
+        self.length = len(self.program)
 
-        self.call_stack_ptr = 0
-        self.call_stack = [0] * RECURSION_DEPTH
 
-        self.namespace = Namespace()
-        self.bootstrap_namespace()
+class Interpreter(object):
+    _virtualizable_ = ["code", "locals[*]", "stack_ptr"]
 
-    def bootstrap_namespace(self):
-        self.namespace.set('true', w_True)
-        self.namespace.set('false', w_False)
+    def __init__(self, code, globals=None, locals=None, stack_depth=0, pc=0):
+        self = jit.hint(self, access_directly=True, fresh_virtualizable=True)
+        self.start_pc = pc
+        self.code = code
+
+        if not stack_depth:
+            stack_depth = self.init_stack_depth()
+
+        if locals is None:
+            locals = []
+        
+        self.stack_ptr = len(locals)
+        self.min_stack_ptr = len(locals)
+        self.locals = locals + [None] * stack_depth
+
+        if globals is None:
+            self.globals = Namespace()
+            self.globals.set('true', w_True)
+            self.globals.set('false', w_False)
+        else:
+            self.globals = globals
+
+    def init_stack_depth(self):
+        arg = self.code.program_args[0]
+        assert isinstance(arg, Integer)
+        self.start_pc += 1
+        return arg.i_value
 
     def next(self, pc):
-        if pc >= len(self.program):
+        jit.promote(self.code)
+        jit.promote(pc)
+
+        if pc >= self.code.length:
             return -1
 
-        instruction = self.program[pc]
-        arg = self.program_args[pc]
+        instruction = self.code.program[pc]
+        arg = self.code.program_args[pc]
 
         debug('%s with %s' %(op_names[instruction], arg.to_str()))
 
         # variables / consts
-        if instruction == STORE:
+        if instruction == STORE_GLOBAL:
             assert isinstance(arg, String)
-            self.STORE(arg.s_value)
+            self.STORE_GLOBAL(arg.s_value)
+
+        elif instruction == LOAD_GLOBAL:
+            assert isinstance(arg, String)
+            self.LOAD_GLOBAL(arg.s_value)
+
+        elif instruction == STORE_LOCAL:
+            assert isinstance(arg, Integer)
+            self.STORE_LOCAL(arg.i_value)
+
+        elif instruction == LOAD_LOCAL:
+            assert isinstance(arg, Integer)
+            self.LOAD_LOCAL(arg.i_value)
 
         elif instruction == CONST_INT:
             assert isinstance(arg, Integer)
@@ -87,10 +128,6 @@ class Interpreter(object):
         elif instruction == STRING:
             assert isinstance(arg, String)
             self.STRING(arg)
-
-        elif instruction == LOAD_VAR:
-            assert isinstance(arg, String)
-            self.LOAD_VAR(arg.s_value)
 
         elif instruction == POP:
             self.POP()
@@ -154,7 +191,7 @@ class Interpreter(object):
             self.MAKE_FUNC(arg.s_value, pc)
         elif instruction == CALL:
             assert isinstance(arg, Integer)
-            pc = self.CALL(arg.i_value, pc)
+            self.CALL(arg.i_value, pc)
         elif instruction == RETURN:
             assert isinstance(arg, Integer)
             pc = self.RETURN(arg.i_value)
@@ -165,6 +202,16 @@ class Interpreter(object):
             assert isinstance(arg, Integer)
             self.CALL_METHOD(arg.i_value)
 
+        # elif instruction == NEW_STRUCT:
+            # assert isinstance(arg, String)
+            # self.NEW_STRUCT(arg.s_value)
+
+        # elif instruction == STRUCT_TYPE:
+        #     self.STRUCT_TYPE(arg)
+
+        # elif instruction == STRUCT_FIELD:
+        #     self.STRUCT_TYPE(arg)
+
         else:
             raise ValueError('opcode %s not yet implemented' %op_names[instruction])
 
@@ -172,16 +219,21 @@ class Interpreter(object):
         return pc
 
     def run(self):
-        pc = 0
+        pc = self.start_pc
         try:
             while True:
                 jitdriver.jit_merge_point(
-                    pc=pc, program=self.program, program_args=self.program_args,
+                    pc=pc, code=self.code,
                     interpreter=self)
 
+                oldpc = pc
                 pc = self.next(pc)
+                
                 if pc == -1:
                     break
+                elif pc < oldpc:
+                    jitdriver.can_enter_jit(pc=pc, code=self.code, interpreter=self)
+
         except Panic as e:
             print 'PANIC: ' + str(e)
             return 1
@@ -191,28 +243,41 @@ class Interpreter(object):
         return self.stack_pop(), self.stack_pop()
 
     def stack_push(self, value):
-        self.stack[self.stack_ptr] = value
+        jit.promote(self.stack_ptr)
+        index = self.stack_ptr
+        assert index >= 0
+        self.locals[index] = value
         self.stack_ptr += 1
 
     def stack_pop(self):
+        jit.promote(self.stack_ptr)
         self.stack_ptr -= 1
-        return self.stack[self.stack_ptr]
-
-    def call_stack_push(self, address):
-        self.call_stack[self.call_stack_ptr] = address
-        self.call_stack_ptr += 1
-
-    def call_stack_pop(self):
-        self.call_stack_ptr -= 1
-        return self.call_stack[self.call_stack_ptr]
+        index = self.stack_ptr
+        assert index >= 0
+        assert index >= self.min_stack_ptr
+        result = self.locals[index]
+        self.locals[index] = None
+        return result
 
     # byte codes
 
     def POP(self, arg=None):
         self.stack_pop()
 
-    def LOAD_VAR(self, name):
-        self.stack_push(self.namespace.get(name))
+    def LOAD_GLOBAL(self, name):
+        self.stack_push(self.globals.get(name))
+
+    def STORE_GLOBAL(self, name):
+        value = self.stack_pop()
+        self.globals.set(name, value)
+
+    def LOAD_LOCAL(self, index):
+        assert index >= 0
+        self.stack_push(self.locals[index])
+
+    def STORE_LOCAL(self, index):
+        assert index >= 0
+        self.locals[index] = self.stack_pop()
 
     def CONST_INT(self, value):
         self.stack_push(value)
@@ -220,17 +285,13 @@ class Interpreter(object):
     def STRING(self, value):
         self.stack_push(value)
 
-    def STORE(self, name):
-        value = self.stack_pop()
-        self.namespace.set(name, value)
-
     def JUMP(self, pc):
         return pc - 1
 
     def JNE(self, pc, old_pc):
         value = self.stack_pop()
 
-        if value is w_False or not value.to_bool():
+        if not value.to_bool():
             return self.JUMP(pc)
         return old_pc
 
@@ -284,6 +345,15 @@ class Interpreter(object):
         assert isinstance(w_count, Integer)
         count = w_count.i_value
 
+        w_count = self.stack_pop()
+        assert isinstance(w_count, Integer)
+        locals_count = w_count.i_value
+
+        w_count = self.stack_pop()
+        assert isinstance(w_count, Integer)
+        stack_depth = w_count.i_value
+
+
         args = []
         for _ in range(count):
             w_arg_name = self.stack_pop()
@@ -292,10 +362,13 @@ class Interpreter(object):
 
         args.reverse()
 
-        self.namespace.set(name, Function(
+
+        #XXX
+        self.globals.set(name, Function(
             address=pc + 1,
             arguments=args,
-            namespace=Namespace(self.namespace)
+            locals_count=locals_count,
+            stack_depth=stack_depth
         ))
 
     @jit.unroll_safe
@@ -303,31 +376,28 @@ class Interpreter(object):
         w_func = self.stack_pop()
         assert isinstance(w_func, Function)
 
-        args = [self.stack_pop() for _ in range(argcount)]
-        args.reverse()
+        locals = [None] * w_func.locals_count
+        for i in range(argcount-1, -1, -1):
+            locals[i] = self.stack_pop()
 
-        self.call_stack_push(pc)
-        self.namespace = Namespace(self.namespace)
-        pc = w_func.address
+        interpreter = Interpreter(self.code, self.globals, locals,
+            stack_depth=w_func.stack_depth,
+            pc=w_func.address+1)
 
-        for i, name in enumerate(w_func.arguments):
-            value = args[i]
-            self.namespace.set(name, value)
+        rc = interpreter.run()
 
-        return pc
+        self.stack_push(interpreter.stack_pop())
 
     def RETURN(self, has_value):
         if not has_value:
             self.stack_push(Integer(0))
 
-        self.namespace = self.namespace.parent
-
-        pc = self.call_stack_pop()
-        return pc
+        return self.code.length
 
     def LOAD_METHOD(self, name):
         self.stack_push(name)
 
+    @jit.unroll_safe
     def CALL_METHOD(self, argcount):
         w_method_name = self.stack_pop()
         assert isinstance(w_method_name, String)
@@ -383,3 +453,20 @@ class Interpreter(object):
     def ASSERT(self):
         if not self.stack_pop().to_bool():
             raise Panic('Assertion failed')
+
+    # STRUCT_TYPE = LOAD_METHOD
+    # STRUCT_FIELD = LOAD_METHOD
+
+    # def NEW_STRUCT(self, name):
+    #     w_arg = self.stack_pop()
+    #     assert isinstance(w_arg, Integer)
+    #     argcount = w_arg.i_value
+
+    #     for _ in range(argcount):
+    #         name = self.stack_pop()
+    #         type_ = self.stack_pop()
+
+    #         if type_ == 'None':
+    #             pass
+
+

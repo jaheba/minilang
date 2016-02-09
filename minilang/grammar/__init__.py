@@ -12,6 +12,7 @@ reserved = {
     'break': 'BREAK',
     'continue': 'CONTINUE',
     'assert': 'ASSERT',
+    'struct': 'STRUCT',
 }
 
 tokens = [
@@ -19,7 +20,7 @@ tokens = [
     'COMP', 'LRARROW',
     'LPAREN', 'RPAREN', 'LCURL', 'RCURL', 'LBRACKET', 'RBRACKET',
     'PLUS','MINUS','TIMES','DIVIDE', 'MODULUS',
-    'SEMICOLON', 'COMMA', 'COLON', 'RETURN', 
+    'SEMICOLON', 'COMMA', 'SINGLE_COLON', 'COLON', 'RETURN', 
 ]
 
 tokens.extend(reserved.values())
@@ -42,6 +43,7 @@ t_RBRACKET = r'\]'
 t_SEMICOLON = r';'
 t_COMMA = r','
 t_COLON = r'::'
+t_SINGLE_COLON = r':'
 
 t_RETURN = r'\^'
 
@@ -112,6 +114,8 @@ SWAPITEM = namedtuple('SWAPITEM', ['target', 'left', 'right'])
 ATTRIBUTE = namedtuple('ATTRIBUTE', ['expression', 'name'])
 BREAK = namedtuple('BREAK', [])
 CONTINUE = namedtuple('CONTINUE', [])
+STYPE = namedtuple('STYPE', ['name', 'type'])
+STRUCT = namedtuple('STRUCT', ['name', 'fields'])
 
 def p_statements(p):
     '''statements : statements statement
@@ -134,6 +138,7 @@ def p_statement(p):
                  | if
                  | while
                  | func
+                 | struct
                  | break SEMICOLON
                  | continue SEMICOLON
     '''
@@ -188,6 +193,28 @@ def p_expression_list_object(p):
     '''atom_expression : LBRACKET expression_list RBRACKET'''
     p[0] = LIST(p[2])
 
+
+def p_type(p):
+    '''struct_type : NAME SINGLE_COLON NAME
+                   | NAME
+    '''
+
+    if len(p) == 4:
+        p[0] = STYPE(name=p[1], type=p[3])
+    else:
+        p[0] = STYPE(name=p[1], type=None)
+
+def p_type_list(p):
+    '''struct_type_list : struct_type_list COMMA struct_type
+                        | struct_type
+                        | empty
+    '''
+    p_expression_list(p)
+
+def p_struct(p):
+    'struct : STRUCT NAME LCURL struct_type_list RCURL'
+
+    p[0] = STRUCT(name=p[2], fields=p[4])
 
 def p_func_def(p):
     '''func : FN NAME name_list block'''

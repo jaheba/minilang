@@ -1,6 +1,6 @@
 import os
-from interpreter import Interpreter, Object, Integer, String
-from interpreter import op_codes, CONST_INT, JUMP, JNE, ARG_COUNT, CALL, RETURN, CREATE_LIST, CALL_METHOD
+from interpreter import Interpreter, Object, Integer, String, Code
+from interpreter import op_codes, CONST_INT, JUMP, JNE, ARG_COUNT, CALL, RETURN, CREATE_LIST, CALL_METHOD, LOAD_LOCAL, STORE_LOCAL
 
 
 def parse(text):
@@ -13,15 +13,13 @@ def parse(text):
         op_code = op_codes[inst]
         program.append(op_code)
 
-        if op_code in (CONST_INT, JUMP, JNE, ARG_COUNT, CALL, CALL_METHOD, RETURN, CREATE_LIST):
+        if op_code in (CONST_INT, JUMP, JNE, ARG_COUNT, CALL, CALL_METHOD, RETURN, CREATE_LIST, LOAD_LOCAL, STORE_LOCAL):
             args.append(Integer(int(arg)))
-            # program.append((op_code, Integer(int(arg))))
-            # program.append((op_code, Integer.from_str(arg)))
         else:
             # program.append((op_code, String(arg)))
             args.append(String(arg))
 
-    return program[:], args[:]
+    return Code(program[:], args[:])
 
 # class NoneObject(Object):
 #     pass
@@ -36,8 +34,8 @@ def run(fp):
         program_contents += read
     os.close(fp)
 
-    program, args = parse(program_contents)
-    i = Interpreter(program, args)
+    code = parse(program_contents)
+    i = Interpreter(code)
     return i.run()
     # program, bm = parse(program_contents)
     # mainloop(program, bm)
